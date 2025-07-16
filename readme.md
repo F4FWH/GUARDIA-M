@@ -2,7 +2,9 @@
 
 Serveur d'urgence pour OpenWrt avec transmission Meshtastic/Gaulix sur le canal Fr-Emcom.
 
-Script créé via claude.ai, idée et correction F4FWH
+Script créé via claude.ai, idées et corrections F4FWH, le script peut contenir des bugs.
+
+Ceci est un PoC, le travail n'est pas validé, l'utilisation en situation d'urgence n'est pas garantie.
 
 ## 🚀 Installation
 
