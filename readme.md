@@ -14,7 +14,23 @@ opkg install python3-dbus-fast
 opkg install python3-yaml
 opkg install kmod-usb-serial-cp210x
 opkg install kmod-usb-acm
-pip3 install bottle meshtastic pubsub
+pip3 install requests
+pip3 install tabulate
+pip3 install charset_normalizer
+pip3 install certifi
+pip3 install urllib3
+pip3 install idna
+pip3 install setuptools
+pip3 install wheel
+pip3 install Cython
+pip3 install poetry-core
+pip3 install bleak
+pip3 install packaging
+pip3 install protobuf
+pip3 install pypubsub
+pip3 install pyserial
+pip3 install bottle
+pip3 install meshtastic
 ```
 
 ### 2. Structure des fichiers
