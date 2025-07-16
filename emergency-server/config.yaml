@@ -1,0 +1,42 @@
+admin:
+  enabled: true
+  password: admin123
+  session_timeout: 3600
+  username: admin
+alert_types:
+  Autre: 3
+  Incendie: 1
+  Secours à Personnes: 2
+app:
+  build_date: '2025-07-16'
+  name: Gaulix Alerte Réseau D'urgence Intervention Assistée Meshtastic - GARDIA-M
+  version: 1.0.0
+logging:
+  format: '%(asctime)s - %(levelname)s - %(message)s'
+  level: INFO
+  log_all_data: true
+logos:
+  enabled: true
+  logo1:
+    alt: Gaulix
+    file: logo_Gaulix_v-300x92.png
+    link: ''
+  logo2:
+    alt: Meshtastic
+    file: logo_meshtastic.png
+    link: ''
+  logo3:
+    alt: 
+    file: 
+    link: ''
+meshtastic:
+  channel_index: 1
+  channel_name: Fr-Emcom
+  device: /dev/ttyUSB0
+  max_message_length: 200
+web:
+  debug: false
+  host: 0.0.0.0
+  port: 8080
+  static_dir: ./static
+  template_dir: ./templates
