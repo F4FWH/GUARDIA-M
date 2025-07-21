@@ -1,0 +1,360 @@
+[
+    {
+        "id": "93a7bd3190925dc0",
+        "type": "tab",
+        "label": "Dashboard Interventions",
+        "disabled": false,
+        "info": "Flux principal avec architecture split/join pour éviter les erreurs de surcharge des propriétés"
+    },
+    {
+        "id": "781d2a6b707d2d53",
+        "type": "function",
+        "z": "93a7bd3190925dc0",
+        "name": "Extract Payload",
+        "func": "// Extraire le payload du message MQTT\nlet mqttData = msg.payload;\n\n// Vérifier si c'est un objet avec une propriété payload\nif (mqttData && mqttData.payload) {\n    // Extraire les données d'intervention du payload\n    let interventionData = mqttData.payload;\n    \n    // Ajouter les métadonnées MQTT si nécessaire\n    interventionData.mqttMetadata = {\n        channel: mqttData.channel,\n        from: mqttData.from,\n        sender: mqttData.sender,\n        rssi: mqttData.rssi,\n        snr: mqttData.snr,\n        timestamp: mqttData.timestamp\n    };\n    \n    msg.payload = interventionData;\n    return msg;\n} else {\n    // Si ce n'est pas la structure attendue, logger une erreur\n    node.error('Structure de message MQTT inattendue: ' + JSON.stringify(mqttData));\n    return null;\n}",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 120,
+        "wires": [
+            [
+                "cdb56e30a0c6c310"
+            ]
+        ]
+    },
+    {
+        "id": "cdb56e30a0c6c310",
+        "type": "function",
+        "z": "93a7bd3190925dc0",
+        "name": "Parse Intervention",
+        "func": "// Traiter les données d'intervention\nlet data = msg.payload;\n\n// Vérifier que nous avons les champs requis\nif (!data.type || !data.nom || !data.tel || !data.adresse) {\n    node.error('Champs manquants dans les données d\\'intervention: ' + JSON.stringify(data));\n    return null;\n}\n\n// Convertir le type numérique en texte\nlet typeText = '';\nlet typeClass = '';\n\nswitch(data.type) {\n    case 1:\n        typeText = 'Incendie';\n        typeClass = 'incendie';\n        break;\n    case 2:\n        typeText = 'Secours à Personnes';\n        typeClass = 'secours';\n        break;\n    case 3:\n        typeText = 'Autre';\n        typeClass = 'autre';\n        break;\n    default:\n        typeText = 'Type Inconnu (' + data.type + ')';\n        typeClass = 'inconnu';\n}\n\n// Créer l'objet enrichi (inclure le champ details s'il existe)\nlet enrichedData = {\n    ...data,\n    typeText: typeText,\n    typeClass: typeClass,\n    timestamp: new Date().toISOString(),\n    id: Date.now() + Math.random(), // ID unique\n    processed: true,\n    hasDetails: !!data.details // Boolean pour indiquer si des détails sont présents\n};\n\nmsg.payload = enrichedData;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 560,
+        "y": 120,
+        "wires": [
+            [
+                "82c20690f499ddfc"
+            ]
+        ]
+    },
+    {
+        "id": "82c20690f499ddfc",
+        "type": "function",
+        "z": "93a7bd3190925dc0",
+        "name": "Prepare for Geocoding",
+        "func": "// Créer deux sorties : une pour continuer sans géocodage, une pour géocoder\nlet data = msg.payload;\n\n// Sortie 1: Continuer le flux principal avec topic\nlet msg1 = {\n    payload: data,\n    topic: \"intervention\"\n};\n\n// Sortie 2: Préparer pour le géocodage avec topic\nlet msg2 = {\n    payload: data.adresse,\n    originalData: data,\n    topic: \"geocode\"\n};\n\nreturn [msg1, msg2];",
+        "outputs": 2,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 780,
+        "y": 120,
+        "wires": [
+            [
+                "50785f420e9b2d06"
+            ],
+            [
+                "e20956a19a853a09"
+            ]
+        ]
+    },
+    {
+        "id": "e20956a19a853a09",
+        "type": "http request",
+        "z": "93a7bd3190925dc0",
+        "name": "Geocode API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api-adresse.data.gouv.fr/search/?q={{payload}}&limit=1",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "x": 980,
+        "y": 180,
+        "wires": [
+            [
+                "b2665436ce765d07"
+            ]
+        ]
+    },
+    {
+        "id": "b2665436ce765d07",
+        "type": "function",
+        "z": "93a7bd3190925dc0",
+        "name": "Process Geocode",
+        "func": "// Récupérer les données originales\nlet originalData = msg.originalData;\n\n// Traiter la réponse du géocodage\nlet coordinates = null;\nlet geocodeInfo = null;\n\nif (msg.payload && msg.payload.features && msg.payload.features.length > 0) {\n    let feature = msg.payload.features[0];\n    coordinates = {\n        lat: feature.geometry.coordinates[1],\n        lon: feature.geometry.coordinates[0]\n    };\n    \n    geocodeInfo = {\n        score: feature.properties.score,\n        label: feature.properties.label,\n        city: feature.properties.city || 'N/A',\n        postcode: feature.properties.postcode || 'N/A'\n    };\n    \n    node.log(`Géocodage réussi pour \"${originalData.adresse}\" -> ${coordinates.lat}, ${coordinates.lon} (score: ${geocodeInfo.score})`);\n} else {\n    node.warn(`Échec du géocodage pour l'adresse: ${originalData.adresse}`);\n}\n\n// Préparer le message pour le join avec topic\nmsg.payload = {\n    id: originalData.id,\n    coordinates: coordinates,\n    geocodeInfo: geocodeInfo,\n    geocoded: coordinates !== null\n};\nmsg.topic = \"geocode\";\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1200,
+        "y": 180,
+        "wires": [
+            [
+                "50785f420e9b2d06"
+            ]
+        ]
+    },
+    {
+        "id": "50785f420e9b2d06",
+        "type": "join",
+        "z": "93a7bd3190925dc0",
+        "name": "Join Results",
+        "mode": "custom",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "5",
+        "count": "2",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 1200,
+        "y": 120,
+        "wires": [
+            [
+                "1999b3193413c12e"
+            ]
+        ]
+    },
+    {
+        "id": "1999b3193413c12e",
+        "type": "function",
+        "z": "93a7bd3190925dc0",
+        "name": "Merge Results",
+        "func": "// Le payload contient un objet avec les deux messages organisés par topic\nlet data = msg.payload;\n\n// Récupérer les données d'intervention et de géocodage\nlet interventionData = data.intervention;\nlet geocodeData = data.geocode;\n\nif (!interventionData) {\n    node.error('Données d\\'intervention non trouvées dans le join');\n    return null;\n}\n\n// Fusionner les données\nlet finalData = {\n    ...interventionData,\n    coordinates: geocodeData ? geocodeData.coordinates : null,\n    geocodeInfo: geocodeData ? geocodeData.geocodeInfo : null,\n    geocoded: geocodeData ? geocodeData.geocoded : false\n};\n\nmsg.payload = finalData;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 120,
+        "wires": [
+            [
+                "1b050530918d332d",
+                "fb9a39c26b9196f4",
+                "4d050f656e95ce2a"
+            ]
+        ]
+    },
+    {
+        "id": "1b050530918d332d",
+        "type": "function",
+        "z": "93a7bd3190925dc0",
+        "name": "Store Data",
+        "func": "// Récupérer ou initialiser le stockage\nlet storedData = flow.get('interventions') || [];\n\n// Ajouter la nouvelle intervention\nstoredData.push(msg.payload);\n\n// Limiter à 100 dernières interventions\nif (storedData.length > 100) {\n    storedData = storedData.slice(-100);\n}\n\n// Sauvegarder\nflow.set('interventions', storedData);\n\n// Log pour debug\nnode.log(`Intervention stockée: ${msg.payload.nom} (${msg.payload.typeText}) - Total: ${storedData.length}`);\n\n// Passer le message\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1600,
+        "y": 80,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "fb9a39c26b9196f4",
+        "type": "websocket out",
+        "z": "93a7bd3190925dc0",
+        "name": "Send to Dashboard",
+        "server": "websocket_config",
+        "client": "",
+        "x": 1620,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "4d050f656e95ce2a",
+        "type": "debug",
+        "z": "93a7bd3190925dc0",
+        "name": "Debug Final",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1610,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "53b4ad8f5d13db0f",
+        "type": "http in",
+        "z": "93a7bd3190925dc0",
+        "name": "Dashboard Route",
+        "url": "/dashboard",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 130,
+        "y": 320,
+        "wires": [
+            [
+                "218e1dce6b6ea6ec"
+            ]
+        ]
+    },
+    {
+        "id": "218e1dce6b6ea6ec",
+        "type": "template",
+        "z": "93a7bd3190925dc0",
+        "name": "Dashboard HTML",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "html",
+        "syntax": "mustache",
+        "template": "<!DOCTYPE html>\n<html>\n<head>\n    <title>Dashboard Interventions</title>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.7.1/dist/leaflet.css\" />\n    <style>\n        body {\n            font-family: Arial, sans-serif;\n            margin: 0;\n            padding: 20px;\n            background-color: #f5f5f5;\n        }\n        .container {\n            max-width: 1400px;\n            margin: 0 auto;\n        }\n        .header {\n            background: linear-gradient(135deg, #d32f2f, #f44336);\n            color: white;\n            padding: 20px;\n            text-align: center;\n            margin-bottom: 20px;\n            border-radius: 8px;\n            box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n        }\n        .stats {\n            display: grid;\n            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));\n            gap: 15px;\n            margin-bottom: 20px;\n        }\n        .stat-card {\n            background: white;\n            padding: 20px;\n            border-radius: 8px;\n            text-align: center;\n            box-shadow: 0 2px 4px rgba(0,0,0,0.1);\n        }\n        .stat-number {\n            font-size: 2em;\n            font-weight: bold;\n            color: #d32f2f;\n        }\n        .dashboard {\n            display: grid;\n            grid-template-columns: 1fr 1fr;\n            gap: 20px;\n        }\n        .card {\n            background: white;\n            padding: 20px;\n            border-radius: 8px;\n            box-shadow: 0 2px 4px rgba(0,0,0,0.1);\n        }\n        .map-container {\n            height: 500px;\n            border-radius: 4px;\n            overflow: hidden;\n        }\n        .interventions-list {\n            height: 500px;\n            overflow-y: auto;\n        }\n        .intervention {\n            border: 1px solid #ddd;\n            padding: 15px;\n            margin-bottom: 10px;\n            border-radius: 4px;\n            transition: all 0.3s;\n            animation: slideIn 0.5s ease-out;\n            cursor: pointer;\n        }\n        @keyframes slideIn {\n            from { opacity: 0; transform: translateX(-20px); }\n            to { opacity: 1; transform: translateX(0); }\n        }\n        .intervention:hover {\n            box-shadow: 0 4px 12px rgba(0,0,0,0.15);\n            transform: translateY(-2px);\n            background-color: #f8f9fa;\n        }\n        .intervention.active {\n            box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);\n            border-color: #d32f2f;\n        }\n        .intervention.incendie {\n            border-left: 4px solid #ff5722;\n        }\n        .intervention.secours {\n            border-left: 4px solid #2196f3;\n        }\n        .intervention.autre {\n            border-left: 4px solid #ffc107;\n        }\n        .type-badge {\n            padding: 6px 12px;\n            border-radius: 20px;\n            font-size: 12px;\n            font-weight: bold;\n            margin-right: 10px;\n        }\n        .type-incendie { background-color: #ff5722; color: white; }\n        .type-secours { background-color: #2196f3; color: white; }\n        .type-autre { background-color: #ffc107; color: black; }\n        .intervention-header {\n            display: flex;\n            align-items: center;\n            margin-bottom: 10px;\n        }\n        .intervention-details {\n            font-size: 14px;\n            color: #666;\n        }\n        .intervention-details div {\n            margin-bottom: 5px;\n        }\n        .intervention-details .details {\n            background: #f9f9f9;\n            padding: 8px;\n            border-radius: 4px;\n            margin-top: 8px;\n            border-left: 3px solid #ffc107;\n            font-style: italic;\n        }\n        .intervention-details .details strong {\n            color: #d32f2f;\n        }\n        .status {\n            position: fixed;\n            top: 20px;\n            right: 20px;\n            padding: 10px 15px;\n            background: #4caf50;\n            color: white;\n            border-radius: 20px;\n            z-index: 1000;\n            font-size: 14px;\n            box-shadow: 0 2px 10px rgba(0,0,0,0.2);\n        }\n        .status.disconnected {\n            background: #f44336;\n        }\n        .metadata {\n            font-size: 12px;\n            color: #999;\n            margin-top: 10px;\n            padding-top: 10px;\n            border-top: 1px solid #eee;\n        }\n    </style>\n</head>\n<body>\n    <div id=\"status\" class=\"status\">Connexion...</div>\n    \n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>🚨 Dashboard Interventions</h1>\n            <p>Suivi en temps réel des interventions d'urgence</p>\n        </div>\n        \n        <div class=\"stats\">\n            <div class=\"stat-card\">\n                <div class=\"stat-number\" id=\"total-count\">0</div>\n                <div>Total Interventions</div>\n            </div>\n            <div class=\"stat-card\">\n                <div class=\"stat-number\" id=\"incendie-count\">0</div>\n                <div>🔥 Incendies</div>\n            </div>\n            <div class=\"stat-card\">\n                <div class=\"stat-number\" id=\"secours-count\">0</div>\n                <div>🚑 Secours</div>\n            </div>\n            <div class=\"stat-card\">\n                <div class=\"stat-number\" id=\"autre-count\">0</div>\n                <div>⚠️ Autres</div>\n            </div>\n        </div>\n        \n        <div class=\"dashboard\">\n            <div class=\"card\">\n                <h2>📍 Carte des Interventions</h2>\n                <div id=\"map\" class=\"map-container\"></div>\n            </div>\n            \n            <div class=\"card\">\n                <h2>📋 Liste des Interventions</h2>\n                <div id=\"interventions-list\" class=\"interventions-list\"></div>\n            </div>\n        </div>\n    </div>\n\n    <script src=\"https://unpkg.com/leaflet@1.7.1/dist/leaflet.js\"></script>\n    <script>\n        // Initialiser la carte\n        const map = L.map('map').setView([49.42, 0.23], 9);\n        \n        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {\n            attribution: '© OpenStreetMap contributors'\n        }).addTo(map);\n        \n        const markers = [];\n        const interventions = new Map(); // Stocker les interventions avec leur ID\n        const statusEl = document.getElementById('status');\n        const stats = {\n            total: 0,\n            incendie: 0,\n            secours: 0,\n            autre: 0\n        };\n        \n        // WebSocket pour recevoir les données\n        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';\n        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/interventions`);\n        \n        ws.onopen = function() {\n            statusEl.textContent = '🟢 Connecté';\n            statusEl.className = 'status';\n        };\n        \n        ws.onclose = function() {\n            statusEl.textContent = '🔴 Déconnecté';\n            statusEl.className = 'status disconnected';\n        };\n        \n        ws.onmessage = function(event) {\n            try {\n                const data = JSON.parse(event.data);\n                addIntervention(data);\n            } catch (e) {\n                console.error('Erreur parsing WebSocket:', e);\n            }\n        };\n        \n        function updateStats() {\n            document.getElementById('total-count').textContent = stats.total;\n            document.getElementById('incendie-count').textContent = stats.incendie;\n            document.getElementById('secours-count').textContent = stats.secours;\n            document.getElementById('autre-count').textContent = stats.autre;\n        }\n        \n        function focusOnIntervention(interventionId) {\n            const intervention = interventions.get(interventionId);\n            if (intervention && intervention.coordinates) {\n                // Centrer la carte sur l'intervention\n                map.setView([intervention.coordinates.lat, intervention.coordinates.lon], 15);\n                \n                // Trouver et ouvrir la popup du marqueur correspondant\n                const marker = intervention.marker;\n                if (marker) {\n                    marker.openPopup();\n                }\n                \n                // Surligner l'intervention dans la liste\n                document.querySelectorAll('.intervention').forEach(el => {\n                    el.classList.remove('active');\n                });\n                \n                const interventionElement = document.getElementById(`intervention-${interventionId}`);\n                if (interventionElement) {\n                    interventionElement.classList.add('active');\n                    \n                    // Supprimer la surbrillance après 3 secondes\n                    setTimeout(() => {\n                        interventionElement.classList.remove('active');\n                    }, 3000);\n                }\n            }\n        }\n        \n        function addIntervention(data) {\n            // Mettre à jour les statistiques\n            stats.total++;\n            switch(data.typeClass) {\n                case 'incendie':\n                    stats.incendie++;\n                    break;\n                case 'secours':\n                    stats.secours++;\n                    break;\n                case 'autre':\n                    stats.autre++;\n                    break;\n            }\n            updateStats();\n            \n            // Ajouter à la liste\n            const listContainer = document.getElementById('interventions-list');\n            const interventionDiv = document.createElement('div');\n            interventionDiv.className = `intervention ${data.typeClass}`;\n            interventionDiv.id = `intervention-${data.id}`;\n            \n            const metadataHtml = data.mqttMetadata ? `\n                <div class=\"metadata\">\n                    📡 MQTT: ${data.mqttMetadata.from} | RSSI: ${data.mqttMetadata.rssi}dBm | SNR: ${data.mqttMetadata.snr}dB\n                </div>\n            ` : '';\n            \n            const detailsHtml = data.details ? `\n                <div class=\"details\">\n                    <strong>📝 Détails:</strong> ${data.details}\n                </div>\n            ` : '';\n            \n            interventionDiv.innerHTML = `\n                <div class=\"intervention-header\">\n                    <span class=\"type-badge type-${data.typeClass}\">\n                        ${data.typeText}\n                    </span>\n                    <strong>${data.nom}</strong>\n                </div>\n                <div class=\"intervention-details\">\n                    <div>📞 ${data.tel}</div>\n                    <div>📍 ${data.adresse}</div>\n                    <div>🕐 ${new Date(data.timestamp).toLocaleString('fr-FR')}</div>\n                    ${data.geocoded ? '<div>🌍 Géocodé ✅</div>' : '<div>🌍 Géocodage échoué ❌</div>'}\n                    ${data.geocodeInfo ? `<div>📊 Score: ${Math.round(data.geocodeInfo.score * 100)}%</div>` : ''}\n                    ${detailsHtml}\n                </div>\n                ${metadataHtml}\n            `;\n            \n            // Ajouter l'événement de clic pour centrer la carte\n            if (data.coordinates) {\n                interventionDiv.addEventListener('click', () => {\n                    focusOnIntervention(data.id);\n                });\n                \n                // Ajouter un indicateur visuel pour montrer que c'est cliquable\n                interventionDiv.style.cursor = 'pointer';\n                interventionDiv.title = 'Cliquer pour voir sur la carte';\n            } else {\n                // Si pas de coordonnées, désactiver le clic\n                interventionDiv.style.cursor = 'default';\n                interventionDiv.title = 'Pas de coordonnées disponibles';\n            }\n            \n            listContainer.insertBefore(interventionDiv, listContainer.firstChild);\n            \n            // Limiter à 20 interventions affichées\n            while (listContainer.children.length > 20) {\n                const lastChild = listContainer.lastChild;\n                const lastId = lastChild.id.replace('intervention-', '');\n                interventions.delete(lastId);\n                listContainer.removeChild(lastChild);\n            }\n            \n            // Ajouter le marqueur sur la carte\n            let marker = null;\n            if (data.coordinates) {\n                marker = L.marker([data.coordinates.lat, data.coordinates.lon])\n                    .addTo(map)\n                    .bindPopup(`\n                        <div style=\"min-width: 250px;\">\n                            <h4>${data.typeText}</h4>\n                            <strong>${data.nom}</strong><br>\n                            📞 ${data.tel}<br>\n                            📍 ${data.adresse}<br>\n                            🕐 ${new Date(data.timestamp).toLocaleString('fr-FR')}<br>\n                            ${data.geocodeInfo ? `📊 Précision: ${Math.round(data.geocodeInfo.score * 100)}%<br>` : ''}\n                            ${data.details ? `<div style=\"margin-top: 10px; padding: 8px; background: #f9f9f9; border-radius: 4px; border-left: 3px solid #ffc107;\"><strong>📝 Détails:</strong><br>${data.details}</div>` : ''}\n                        </div>\n                    `);\n                \n                markers.push(marker);\n                \n                // Centrer la carte sur le nouveau marqueur\n                map.setView([data.coordinates.lat, data.coordinates.lon], 13);\n            }\n            \n            // Stocker l'intervention avec son marqueur\n            interventions.set(data.id, {\n                ...data,\n                marker: marker\n            });\n        }\n        \n        // Charger les données existantes au démarrage\n        fetch('/api/interventions')\n            .then(response => response.json())\n            .then(data => {\n                if (data.interventions) {\n                    data.interventions.forEach(intervention => {\n                        addIntervention(intervention);\n                    });\n                }\n            })\n            .catch(error => console.error('Erreur chargement données:', error));\n    </script>\n</body>\n</html>",
+        "output": "str",
+        "x": 360,
+        "y": 320,
+        "wires": [
+            [
+                "cd147cc726fa15a3"
+            ]
+        ]
+    },
+    {
+        "id": "cd147cc726fa15a3",
+        "type": "http response",
+        "z": "93a7bd3190925dc0",
+        "name": "Send Response",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "text/html"
+        },
+        "x": 580,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "49db2b837fab4fd3",
+        "type": "http in",
+        "z": "93a7bd3190925dc0",
+        "name": "API Get Data",
+        "url": "/api/interventions",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 130,
+        "y": 420,
+        "wires": [
+            [
+                "7f5c8e70c98bd379"
+            ]
+        ]
+    },
+    {
+        "id": "7f5c8e70c98bd379",
+        "type": "function",
+        "z": "93a7bd3190925dc0",
+        "name": "Return Data",
+        "func": "// Récupérer les données stockées\nlet storedData = flow.get('interventions') || [];\n\n// Calculer des statistiques\nlet stats = {\n    total: storedData.length,\n    incendie: storedData.filter(i => i.typeClass === 'incendie').length,\n    secours: storedData.filter(i => i.typeClass === 'secours').length,\n    autre: storedData.filter(i => i.typeClass === 'autre').length,\n    geocoded: storedData.filter(i => i.geocoded).length\n};\n\nmsg.payload = {\n    interventions: storedData,\n    stats: stats,\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 420,
+        "wires": [
+            [
+                "d38dabf826f84fec"
+            ]
+        ]
+    },
+    {
+        "id": "d38dabf826f84fec",
+        "type": "http response",
+        "z": "93a7bd3190925dc0",
+        "name": "API Response",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 580,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "728d8bc8abb1338a",
+        "type": "mqtt in",
+        "z": "93a7bd3190925dc0",
+        "name": "",
+        "topic": "msh/2/json/Fr_EMCOM/#",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "15cb407cb596b6df",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 130,
+        "y": 120,
+        "wires": [
+            [
+                "781d2a6b707d2d53"
+            ]
+        ]
+    },
+    {
+        "id": "websocket_config",
+        "type": "websocket-listener",
+        "path": "/ws/interventions",
+        "wholemsg": "false"
+    },
+    {
+        "id": "15cb407cb596b6df",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    }
+]
