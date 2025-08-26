@@ -357,7 +357,7 @@ if [ "$STATUS" != "OK" ]; then
     # Ajouter notification (email, webhook, etc.)
 fi
 ```
-## Matériels testés
+## 📡 Matériels testés
    Matériel         | Statut                     | Erreur rencontrée                     |
  |------------------|----------------------------|----------------------------------------|
  | Heltec V3   | ✅                         | Aucune                                  |
