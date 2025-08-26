@@ -357,6 +357,11 @@ if [ "$STATUS" != "OK" ]; then
     # Ajouter notification (email, webhook, etc.)
 fi
 ```
+## Matériels testés
+   Matériel         | Statut                     | Erreur rencontrée                     |
+ |------------------|----------------------------|----------------------------------------|
+ | Heltec V3   | ✅                         | Aucune                                  |
+ | Heltec Tracker    | ❌                         | - ERROR - Erreur connexion Meshtastic: [Errno 11] Could not exclusively lock port /dev/ttyUSB0: [Errno 11] Resource temporarily unavailable                |
 
 ## 🐛 Dépannage
 
@@ -381,6 +386,7 @@ Solution : Vérifier le port série dans la configuration.
 Normal : Le système tronque automatiquement pour respecter la limite Meshtastic.
 
 ## 📋 Changelog
-
+### v1.0.1 (2025-07-16)
+Ajout dans le readme des matériels testés
 ### v1.0.0 (2025-07-16)
 
