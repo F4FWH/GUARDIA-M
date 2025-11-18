@@ -360,8 +360,9 @@ fi
 ## 📡 Matériels testés
    Matériel         | Statut                     | Erreur rencontrée                     |
  |------------------|----------------------------|----------------------------------------|
- | Heltec V3   | ✅                         | Aucune                                  |
- | Heltec Tracker    | ❌                         | - ERROR - Erreur connexion Meshtastic: [Errno 11] Could not exclusively lock port /dev/ttyUSB0: [Errno 11] Resource temporarily unavailable                |
+ | Heltec V3   | ❌                         |    - ERROR - Erreur connexion Meshtastic: [Errno 11] Could not exclusively lock port /dev/ttyUSB0: [Errno 11] Resource temporarily unavailable                             |
+ | Heltec Tracker    | ✅                     | Aucune                  |
+ | Heltec T114    | ✅                     | Aucune                  |
 
 ## 🐛 Dépannage
 
